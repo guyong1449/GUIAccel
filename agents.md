@@ -11,7 +11,7 @@ Technical reference for the GUIAccel coordinate regression head on Qwen3-VL-8B-I
 |------|--------|
 | Backbone | Qwen3-VL-8B-Instruct |
 | Architecture | `Qwen3VLForConditionalGeneration` (HuggingFace transformers) |
-| Hidden dim | 3584 (Qwen3-VL-8B 的 `hidden_size`) |
+| Hidden dim | 4096 (`text_config.hidden_size`, 36 layers, 32 heads) |
 | vLLM support | Native (OpenAI-compat API, `/v1/chat/completions`) |
 | Serving | 8 replicas, 1 GPU each (H20-141G), proxy on `:8000` |
 | Coordinate scale | 0-999 归一化 (Qwen3-VL native mobile_use format) |
@@ -64,13 +64,13 @@ Qwen3-VL Backbone (frozen)
         │
         ├── ★ Trigger Point: 检测到 action_type = CLICK 或 LONG_PRESS
         │     │
-        │     └── Extract h_t ∈ R^3584  (action_type token 的 hidden state)
+        │     └── Extract h_t ∈ R^4096  (action_type token 的 hidden state)
         │           │
         │           ▼
         │     ┌─────────────────────────────┐
         │     │  CoordHead (trainable)      │
         │     │                             │
-        │     │  h_t ─→ Linear(3584, 256)   │
+        │     │  h_t ─→ Linear(4096, 256)   │
         │     │      ─→ ReLU                │
         │     │      ─→ Dropout(0.1)        │
         │     │      ─→ Linear(256, 2)      │
@@ -90,7 +90,7 @@ Qwen3-VL Backbone (frozen)
 ### 参数量分析
 
 ```
-Linear(3584, 256):  3584 × 256 + 256 = 917,760 参数
+Linear(4096, 256):  4096 × 256 + 256 = 917,760 参数
 Linear(256, 2):     256 × 2 + 2      = 514 参数
 总计:               918,274 参数 (~3.5 MB fp32, ~1.8 MB fp16)
 ```
@@ -128,14 +128,14 @@ AndroidControl train split
         │
         ├── 提取该位置的 last_hidden_state
         │   h_t = model_output.hidden_states[-1][:, action_type_pos, :]
-        │   h_t ∈ R^3584
+        │   h_t ∈ R^4096
         │
         └── 记录 ground truth 坐标
             gt_coord = [x/999, y/999]  (归一化到 [0,1])
             │
             ▼
     保存: {
-        "hidden_state": h_t,          # torch.Tensor [3584]
+        "hidden_state": h_t,          # torch.Tensor [4096]
         "gt_coord": gt_coord,         # torch.Tensor [2]
         "episode_id": str,
         "step_index": int,
@@ -171,7 +171,7 @@ experiments/regression_head.py --mode train \
 
 ```python
 class CoordRegressionHead(nn.Module):
-    def __init__(self, input_dim=3584, hidden_dim=256):
+    def __init__(self, input_dim=4096, hidden_dim=256):
         super().__init__()
         self.mlp = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
