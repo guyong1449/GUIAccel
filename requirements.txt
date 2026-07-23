@@ -1,0 +1,9 @@
+numpy>=1.26
+Pillow>=10.0
+torch>=2.4
+transformers>=4.57.0
+peft>=0.18.1
+accelerate>=1.0
+sentencepiece>=0.2.0
+safetensors>=0.4.0
+vllm>=0.8.0

@@ -1,0 +1,40 @@
+{
+  "benchmark": "AndroidControl",
+  "paths": {
+    "dataset_manifest": "data/androidcontrol/manifest.json",
+    "base_model_path": "models/Qwen3-VL-8B-Instruct"
+  },
+  "model": {
+    "backend": "local_transformers",
+    "source": "models/Qwen3-VL-8B-Instruct",
+    "model_name": "Qwen3-VL-8B-Instruct",
+    "served_model_name": "Qwen3-VL-8B-Instruct"
+  },
+  "service": {
+    "kind": "local_transformers",
+    "visible_cuda_devices": [0, 1, 2, 3],
+    "attn_implementation": {
+      "vision_config": "flash_attention_2",
+      "text_config": "flash_attention_2"
+    }
+  },
+  "fallback": {
+    "temperature": 0.0,
+    "top_p": 1.0,
+    "max_new_tokens": 2048,
+    "repetition_penalty": 1.0,
+    "image_max_pixels": 1000000
+  },
+  "evaluation": {
+    "worker_gpus": [0, 1, 2, 3],
+    "android_instruction_modes": ["high_level", "low_level"],
+    "microbatch_caps": {
+      "sample_cap_per_gpu": 1,
+      "image_cap_per_gpu": 16,
+      "visual_token_cap_per_gpu": 8192,
+      "text_token_cap_per_gpu": 32768,
+      "progress_flush_interval_examples": 16
+    },
+    "measure_end_to_end_latency": true
+  }
+}

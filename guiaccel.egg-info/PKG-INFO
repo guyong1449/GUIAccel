@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: guiaccel
+Version: 0.1.0
+Summary: GUI Agent Inference Acceleration — decode optimization experiments.
+Requires-Python: >=3.9
