@@ -475,3 +475,14 @@ python experiments/regression_head.py --mode eval \
 - 训练、评测、推理时确保支持 **resume 参数**，保存 checkpoint 能够续训，编写拉起续训的脚本，默认拉起次数上限为 40000
 - 提交任务，产物输出放在新文件夹，相同类型的任务，禁止覆盖
 - 转移文件使用 `mv`，禁止使用复制后删除
+
+---
+
+## E2: 3-Point CPU Training (thinking_end / action / coord_bracket)
+
+| Item | Detail |
+|------|--------|
+| Extract | `outputs/regression_head/20260724_021359` (multi_point=True, N=46581) |
+| Job ID | **31657** |
+| Script | `run_scripts/regression_head/train_e2_3points_cpu.sh` |
+| Status | RUNNING (as of 2026-07-24 19:16 UTC+8) |
