@@ -336,10 +336,6 @@ def _normalize_action_name(action_name: str) -> str | None:
         "complete": "TERMINATE",
         "done": "TERMINATE",
         "stop": "TERMINATE",
-        # AndroidWorld-specific action names
-        "press_enter": "NAV",
-        "keyboard_enter": "NAV",
-        "double_tap": "CLICK",
     }
     return aliases.get(normalized)
 

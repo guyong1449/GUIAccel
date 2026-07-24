@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# Shared SLURM defaults for SkillReuse GPU jobs (DKUCC partitions).
+# Shared SLURM defaults for GUIAccel GPU jobs (DKUCC partitions).
 
 DEFAULT_SLURM_TIME="7-00:00:00"
-DEFAULT_SLURM_PARTITION="l20-gpu"
-DEFAULT_SLURM_FALLBACK_PARTITION="l20-gpu"
+DEFAULT_SLURM_PARTITION="common-gpu"
+DEFAULT_SLURM_FALLBACK_PARTITION="common-gpu"
 DEFAULT_SLURM_GPUS="4"
 DEFAULT_SLURM_CPUS="16"
 DEFAULT_SLURM_MEM="160G"
 
-# GPU partitions — direct l20-gpu submission (no h20 fallback).
+# GPU partitions — common-gpu primary, l20-gpu fallback.
 SLURM_GPU_PARTITION_CANDIDATES=(
-    "${DEFAULT_SLURM_PARTITION}"
+    "common-gpu"
+    "l20-gpu"
 )
 
 _slurm_partition_uses_gpu_fallback() {

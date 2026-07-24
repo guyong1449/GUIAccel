@@ -137,7 +137,7 @@ class ModelServiceConfig:
     visible_cuda_devices: tuple[int, ...] = (0, 1, 2, 3, 4, 5, 6, 7)
     device_map: int | str | None = 0
     torch_dtype: str = "bfloat16"
-    attn_implementation: str | Mapping[str, str] | None = None
+    attn_implementation: str | Mapping[str, str] | None = "flash_attention_2"
     trust_remote_code: bool = False
     processor_from_adapter_first: bool = True
     allow_cpu: bool = False

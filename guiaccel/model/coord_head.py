@@ -6,8 +6,13 @@ pairs extracted from Qwen3-VL at the action-type token position.
 
 Architecture
 ------------
-    h_t ∈ R^4096 → Linear(4096, hidden_dim) → ReLU → Dropout → Linear(hidden_dim, 2) → Sigmoid
+    h_t ∈ R^4096
+      → LayerNorm(4096)          # stabilise VLM hidden magnitude (±60 → unit scale)
+      → Linear(4096, hidden_dim) → ReLU → Dropout → Linear(hidden_dim, 2) → Sigmoid
     output: [x̂, ŷ] ∈ [0, 1]²  →  de-normalize to 0-999 scale
+
+Without LayerNorm, large hidden activations saturate Sigmoid (logits ±100) and
+training collapses to a near-constant prediction (observed MAE@999 ≈ 473).
 """
 
 from __future__ import annotations
@@ -38,6 +43,9 @@ class CoordRegressionHead(nn.Module):
         super().__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
+        # LayerNorm is required: Qwen3-VL last-layer h has absmax ~60; without
+        # it the final Sigmoid saturates and gradients vanish.
+        self.ln = nn.LayerNorm(input_dim)
         self.mlp = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
@@ -57,7 +65,7 @@ class CoordRegressionHead(nn.Module):
         -------
         Tensor of shape ``(*, 2)`` with values in ``[0, 1]``.
         """
-        return self.mlp(h)
+        return self.mlp(self.ln(h))
 
     def predict_999(self, h: torch.Tensor) -> torch.Tensor:
         """Predict coordinates on the 0-999 Qwen3-VL scale."""
@@ -76,7 +84,7 @@ class CoordHeadTrainConfig:
     input_dim: int = 4096
     hidden_dim: int = 256
     dropout: float = 0.1
-    lr: float = 1e-3
+    lr: float = 3e-4
     weight_decay: float = 1e-4
     epochs: int = 50
     batch_size: int = 256
@@ -84,6 +92,7 @@ class CoordHeadTrainConfig:
     smooth_l1_beta: float = 0.01
     val_fraction: float = 0.2
     seed: int = 42
+    grad_clip: float = 1.0
 
 
 def compute_loss(

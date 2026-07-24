@@ -7,6 +7,8 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=160G
 #SBATCH --time=7-00:00:00
+#SBATCH --output=/dkucc/home/rw335/GUIAccel/logs/regression_head/extract_4gpu/slurm-%j.out
+#SBATCH --error=/dkucc/home/rw335/GUIAccel/logs/regression_head/extract_4gpu/slurm-%j.err
 
 set -euo pipefail
 

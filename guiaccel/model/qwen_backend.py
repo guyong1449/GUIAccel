@@ -98,7 +98,7 @@ class QwenBackendConfig:
     visible_cuda_devices: tuple[int, ...] = ALLOWED_CUDA_DEVICES
     device_map: int | str | None = 0
     torch_dtype: str = "bfloat16"
-    attn_implementation: str | Mapping[str, str] | None = None
+    attn_implementation: str | Mapping[str, str] | None = "flash_attention_2"
     trust_remote_code: bool = False
     processor_from_adapter_first: bool = True
     default_image_max_pixels: int = 1_000_000

@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Model weights
+.cache/
+models/
+
+# Outputs & logs
+logs/
+outputs/
+experiments/
+
+# Config preservation
+training_journal/
+
+# Pytest
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/

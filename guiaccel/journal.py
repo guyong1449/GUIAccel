@@ -54,7 +54,8 @@ def get_job_context() -> dict[str, Any]:
             ctx[short] = val
     ctx["hostname"] = platform.node()
     ctx["submitted_at"] = (
-        os.environ.get("SKILLREUSE_JOB_SUBMITTED_AT")
+        os.environ.get("GUIACCEL_JOB_SUBMITTED_AT")
+        or os.environ.get("SKILLREUSE_JOB_SUBMITTED_AT")
         or os.environ.get("VISIONZIP_JOB_SUBMITTED_AT")
         or os.environ.get("BASELINE_JOB_SUBMITTED_AT")
         or ""
@@ -65,6 +66,7 @@ def get_job_context() -> dict[str, Any]:
 def resolve_journal_run_dir() -> Path | None:
     """Return the active journal run directory from known launcher env vars."""
     for env_key in (
+        "GUIACCEL_JOURNAL_RUN_DIR",
         "VISIONZIP_JOURNAL_RUN_DIR",
         "BASELINE_JOURNAL_RUN_DIR",
         "SKILLREUSE_JOURNAL_RUN_DIR",
@@ -130,7 +132,7 @@ def write_run_summary(
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     job_ctx = get_job_context()
     lines = [
-        "# SkillReuse Run Summary",
+        "# GUIAccel Run Summary",
         "",
         f"- mode: {mode}",
         f"- status: {status}",
@@ -283,7 +285,7 @@ def append_evaluation_summary_section(run_dir: Path, formatted_summary: str) -> 
         summary_path.write_text(existing + section, encoding="utf-8")
         return summary_path
 
-    summary_path.write_text("# SkillReuse Run Summary\n" + section, encoding="utf-8")
+    summary_path.write_text("# GUIAccel Run Summary\n" + section, encoding="utf-8")
     return summary_path
 
 

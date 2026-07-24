@@ -28,8 +28,6 @@ def default_config_path(benchmark: str) -> Path:
         return get_repo_root() / "configs" / "learngui" / "default.json"
     if normalized == "androidcontrol":
         return get_repo_root() / "configs" / "androidcontrol" / "default.json"
-    if normalized == "androidworld":
-        return get_repo_root() / "configs" / "androidworld" / "default.json"
     raise ValueError(f"Unsupported benchmark: {benchmark}")
 
 
@@ -310,61 +308,6 @@ def resolve_dataset_manifest_path(config: Mapping[str, Any]) -> str | None:
     return str(Path(str(manifest_path)).expanduser().resolve())
 
 
-def resolve_androidworld_config(config_path: str | Path) -> "AndroidWorldRunConfig":
-    """Parse an AndroidWorld JSON config file into an AndroidWorldRunConfig."""
-    from guiaccel.evaluation.androidworld import AndroidWorldRunConfig
-
-    raw = json.loads(Path(config_path).read_text())
-
-    env_section = _mapping(raw.get("environment"))
-    task_section = _mapping(raw.get("tasks"))
-    model_section = _mapping(raw.get("model"))
-    output_section = _mapping(raw.get("output"))
-    evaluation_section = _mapping(raw.get("evaluation"))
-
-    service_config = None
-    if "service" in raw or "backend" in raw:
-        service_config = resolve_backend_config(raw)
-
-    backend_type = str(model_section.get("backend_type", "local_transformers"))
-    if service_config is not None and service_config.kind:
-        backend_type = service_config.kind
-
-    raw_endpoints = env_section.get("emulator_endpoints", ())
-    emulator_endpoints = tuple(
-        (str(ep[0]), int(ep[1])) for ep in raw_endpoints
-    )
-
-    return AndroidWorldRunConfig(
-        emulator_host=str(env_section.get("emulator_host", "localhost")),
-        emulator_port=int(env_section.get("emulator_port", 5554)),
-        adb_server_port=int(env_section.get("adb_server_port", 5037)),
-        grpc_port=int(env_section.get("grpc_port", 8554)),
-        screen_width=int(env_section.get("screen_width", 1080)),
-        screen_height=int(env_section.get("screen_height", 2400)),
-        perform_emulator_setup=bool(env_section.get("perform_emulator_setup", False)),
-        transition_pause=float(env_section.get("transition_pause", 1.0)),
-        max_steps_per_task=int(task_section.get("max_steps_per_task", 30)),
-        task_timeout_seconds=float(task_section.get("task_timeout_seconds", 600.0)),
-        task_names=tuple(str(t) for t in task_section.get("task_names", ())),
-        suite_family=str(task_section.get("suite_family", "android_world")),
-        fallback=resolve_fallback_config(raw),
-        model_path=_optional_str(model_section.get("model_path")),
-        adapter_path=_optional_str(model_section.get("adapter_path")),
-        api_base=_optional_str(model_section.get("api_base")),
-        backend_type=backend_type,
-        max_new_tokens=int(model_section.get("max_new_tokens", 2048)),
-        model_coordinate_scale=int(model_section.get("coordinate_scale", 999)),
-        checkpoint_interval=int(output_section.get("checkpoint_interval", 1)),
-        save_screenshots=bool(output_section.get("save_screenshots", True)),
-        worker_gpus=tuple(int(g) for g in evaluation_section.get("worker_gpus", ())),
-        emulator_endpoints=emulator_endpoints,
-        measure_end_to_end_latency=bool(evaluation_section.get("measure_end_to_end_latency", False)),
-        task_limit=_optional_int(evaluation_section.get("task_limit")),
-        service_config=service_config,
-    )
-
-
 def resolve_evaluation_config(config: Mapping[str, Any]) -> EvaluationRunConfig:
     evaluation = _mapping(config.get("evaluation"))
     microbatch = _mapping(evaluation.get("microbatch"))
@@ -433,7 +376,6 @@ __all__ = [
     "default_config_path",
     "load_benchmark_config",
     "load_json_config",
-    "resolve_androidworld_config",
     "resolve_backend_config",
     "resolve_dataset_manifest_path",
     "resolve_discovery_config",

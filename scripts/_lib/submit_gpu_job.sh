@@ -46,7 +46,7 @@ submit_gpu_job() {
         --job-name="${job_name}"
         --output="${log_dir}/${job_name}_%j.log"
         --error="${log_dir}/${job_name}_%j.log"
-        --chdir="$(skillreuse_repo_root_from "${_SCRIPT_DIR}")"
+        --chdir="$(guiaccel_repo_root_from "${_SCRIPT_DIR}")"
         --wrap="${wrap_cmd}"
     )
 

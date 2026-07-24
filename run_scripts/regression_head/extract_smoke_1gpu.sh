@@ -7,6 +7,8 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=01:00:00
+#SBATCH --output=/dkucc/home/rw335/GUIAccel/logs/regression_head/extract_smoke_1gpu/slurm-%j.out
+#SBATCH --error=/dkucc/home/rw335/GUIAccel/logs/regression_head/extract_smoke_1gpu/slurm-%j.err
 
 set -euo pipefail
 
@@ -24,7 +26,7 @@ source .env 2>/dev/null || true
 
 TIMESTAMP="$(date '+%Y%m%d_%H%M%S')"
 OUTPUT_DIR="${REPO_ROOT}/outputs/regression_head/e1a_smoke_${TIMESTAMP}"
-mkdir -p "${OUTPUT_DIR}" "${REPO_ROOT}/outputs/slurm"
+mkdir -p "${OUTPUT_DIR}" "${REPO_ROOT}/logs/regression_head/extract_smoke_1gpu"
 
 # If launched via sbatch without -o/-e, tee into the output dir.
 exec > >(tee -a "${OUTPUT_DIR}/extract_smoke.log") 2>&1

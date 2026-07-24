@@ -1,0 +1,63 @@
+{
+  "timestamp": "2026-07-24T05:50:08.990701",
+  "os": {
+    "system": "Linux",
+    "release": "5.14.0-611.27.1.el9_7.x86_64",
+    "version": "#1 SMP PREEMPT_DYNAMIC Wed Feb 4 04:40:11 EST 2026",
+    "machine": "x86_64",
+    "python_version": "3.11.4"
+  },
+  "cpu": {
+    "physical_cores": 6,
+    "logical_cores": 12,
+    "max_frequency_mhz": 2600.0,
+    "architecture": "x86_64",
+    "processor": "x86_64",
+    "current_frequency_mhz": 3.3990833333333335
+  },
+  "memory": {
+    "total_gb": 62.29,
+    "available_gb": 53.93,
+    "used_gb": 7.63,
+    "percent_used": 13.4,
+    "swap_total_gb": 3.91,
+    "swap_available_gb": 0.0
+  },
+  "disk": {
+    "path": "/dkucc/home/rw335/GUIAccel",
+    "total_gb": 1024.0,
+    "available_gb": 657.3,
+    "used_gb": 366.7,
+    "percent_used": 35.8
+  },
+  "gpu": {
+    "nvidia_gpus": [],
+    "amd_gpus": [],
+    "apple_silicon": null,
+    "total_gpus": 0,
+    "available_backends": []
+  },
+  "recommendations": {
+    "parallel_processing": {
+      "strategy": "high_parallelism",
+      "suggested_workers": 10,
+      "libraries": [
+        "joblib",
+        "multiprocessing",
+        "dask"
+      ]
+    },
+    "memory_strategy": {
+      "strategy": "memory_abundant",
+      "note": "Can load most datasets into memory"
+    },
+    "gpu_acceleration": {
+      "available": false,
+      "note": "No GPU detected, use CPU-based libraries"
+    },
+    "large_data_handling": {
+      "strategy": "disk_abundant",
+      "note": "Sufficient space for large intermediate files"
+    }
+  }
+}

@@ -32,7 +32,7 @@ For each experiment / gate, report all three (plus accuracy):
 | Coord head | `guiaccel/model/coord_head.py` — `CoordRegressionHead` (LayerNorm + MLP 4096→256→2) |
 | Decode eval helpers | `guiaccel/model/coord_decode_eval.py` — `autoregressive_decode_coords`, `regression_predict_coords` |
 | Experiment entry | `experiments/regression_head.py` — `--mode extract\|train\|eval` |
-| SLURM scripts | `run_scripts/regression_head/extract_4gpu.sh`, `train_1gpu.sh`, `eval_decode_4gpu.sh` |
+| SLURM scripts | `run_scripts/regression_head/extract_4gpu.sh`, `train_cpu.sh`, `eval_decode_4gpu.sh` |
 | Technical status doc | `agents.md` (**stale** vs reality — see §1.4) |
 | Research roadmap | `docs/plan.md` |
 | This campaign plan | `docs/plan_e1_e4_thinking_aware.md` |
@@ -208,7 +208,7 @@ If we force a thinking-aware prefix so train-time \(h_t\) matches the AR trigger
 |------|-------|-------------------|
 | Smoke extract 50–100 eps | 1×A40 | ~10–20 min |
 | Full train re-extract | **4×A40**, `common-gpu`, 16 CPU, 160G, `--time 7-00:00:00` | Prior no-think extract **~2.2h**; thinking prefix longer → expect **~2.5–4h** |
-| Retrain | **1×A40** (or CPU), `train_1gpu.sh` | **≪1h** (MLP) |
+| Retrain | **common / 16 CPU**, `train_cpu.sh` | **≪1h** (MLP) |
 | Fair decode smoke | 4×A40, `--episode-limit` small | ~30–60 min |
 | Fair full test eval | 4×A40 | Prior partial ~34m for ~60 eps/GPU; full ~1543 test eps → **~6–12h** (order-of-magnitude; confirm after smoke) |
 

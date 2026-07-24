@@ -1,0 +1,15 @@
+{
+  "benchmark": "AndroidControl",
+  "dataset_manifest": "/dkucc/home/rw335/SkillReuse/data/androidcontrol/manifest.json",
+  "model": {
+    "base_model_path": "Qwen/Qwen2-VL-7B-Instruct",
+    "draft_model_path": "lucylyn/MSD-Qwen2VL-7B-Instruct",
+    "max_new_tokens": 256,
+    "max_pixels": 1000000,
+    "min_pixels": 3136,
+    "total_token": 59,
+    "depth": 5,
+    "top_k": 10,
+    "threshold": 1.0
+  }
+}

@@ -470,34 +470,6 @@ def _android_accessibility_nodes(step: DatasetStep) -> tuple[dict[str, Any], ...
     return tuple()
 
 
-def _canonicalize_androidworld(step: DatasetStep) -> CanonicalStepRecord:
-    """Canonicalize an AndroidWorld observation into a CanonicalStepRecord.
-
-    AndroidWorld is an interactive benchmark without offline ground-truth actions.
-    canonical_action is set to UNOBSERVED; effect_delta and lexical_alignment are
-    left empty because there is no reference action to align against.
-    """
-    return CanonicalStepRecord(
-        goal=step.goal,
-        screenshot=step.screenshot,
-        normalized_metadata={
-            "dataset": "AndroidWorld",
-            "benchmark": "AndroidWorld",
-            "episode_id": step.episode_id,
-            "step_index": step.step_index,
-            **{
-                k: v
-                for k, v in step.metadata.items()
-                if k in ("app_names", "task_name", "complexity", "ui_element_count")
-            },
-        },
-        canonical_action=CanonicalAction("UNOBSERVED", None, None, None, None),
-        effect_delta={},
-        bound_target=None,
-        lexical_alignment={},
-    )
-
-
 def canonicalize_step(step: DatasetStep) -> CanonicalStepRecord:
     """Canonicalize a dataset-specific step."""
 
@@ -505,6 +477,4 @@ def canonicalize_step(step: DatasetStep) -> CanonicalStepRecord:
         return _canonicalize_learngui(step)
     if step.dataset == "AndroidControl":
         return _canonicalize_android(step)
-    if step.dataset == "AndroidWorld":
-        return _canonicalize_androidworld(step)
     raise ValueError(f"Unsupported dataset for canonicalization: {step.dataset}")
