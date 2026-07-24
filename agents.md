@@ -497,3 +497,15 @@ python experiments/regression_head.py --mode eval \
 | **coord_bracket** | 45 | **37.16** | `train_e2_coord_bracket_20260724_072020/` |
 
 **Winner by MAE: coord_bracket** (37.16 vs action 41.86 vs thinking_end 67.19)
+
+### E2 Decode Eval — Submitted
+
+| Item | Detail |
+|------|--------|
+| Eval script | `run_scripts/regression_head/eval_decode_4gpu.sh` |
+| Split | test (full, ~5k samples) |
+| GPUs | 4×A40 per job |
+| **thinking_end** | job **31658** → `TRAIN_RUN=train_e2_thinking_end_20260724_071712`, `EXTRACT_POINT=thinking_end` |
+| **action** | job **31659** → `TRAIN_RUN=train_e2_action_20260724_071900`, `EXTRACT_POINT=action` |
+| **coord_bracket** | job **31660** → `TRAIN_RUN=train_e2_coord_bracket_20260724_072020`, `EXTRACT_POINT=coord_bracket` |
+| Submitted | 2026-07-24 19:23 UTC+8 |
