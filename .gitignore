@@ -4,14 +4,16 @@ __pycache__/
 *.pyo
 *.egg-info/
 
-# Model weights
+# Model weights (keep dirs, ignore actual binaries)
 .cache/
-models/
+models/**/*.safetensors
+models/**/*.bin
+models/**/*.pt
+models/**/*.pth
 
 # Outputs & logs
 logs/
 outputs/
-experiments/
 
 # Config preservation
 training_journal/
