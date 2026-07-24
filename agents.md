@@ -16,7 +16,7 @@ Technical reference for the GUIAccel coordinate regression head on Qwen3-VL-8B-I
 | Serving | 8 replicas, 1 GPU each (H20-141G), proxy on `:8000` |
 | Coordinate scale | 0-999 归一化 (Qwen3-VL native mobile_use format) |
 | Dataset | AndroidControl (train/validation/test) |
-| Conda env | `maiui-vllm` (复用自 SkillReuse) |
+| Conda env | `skillreuse-fa2` (`/dkucc/home/rw335/.conda/envs/skillreuse-fa2`, Python 3.10, torch 2.7.0+cu126, flash_attn 2.8.3) |
 
 ---
 
@@ -101,16 +101,21 @@ Linear(256, 2):     256 × 2 + 2      = 514 参数
 
 ## 三阶段流水线
 
-### Phase 1: Hidden State 提取 (`extract`)
+### Phase 1: Hidden State 提取 — GT-Forcing Prefill (`extract`)
 
 ```
 experiments/regression_head.py --mode extract \
     --output-dir outputs/regression_head/extracted \
     --split train \
-    --task-limit 5000
+    --num-gpus 4
 ```
 
-**流程**:
+**方法名称: GT-Forcing Prefill**
+
+利用 Transformer causal attention mask 的性质：位置 t 的 hidden state
+仅依赖 x_0..x_t，与 token 是自回归生成还是一次性输入无关。
+因此可将 GT output（到 action_type token 为止）直接拼入输入，
+仅做 **单次 forward pass** 而非逐 token generate。
 
 ```
 AndroidControl train split
@@ -119,16 +124,21 @@ AndroidControl train split
 对每个 episode 的每个 step:
     if step.action_type ∈ {CLICK, LONG_PRESS}:
         │
-        ├── 运行 Qwen3-VL forward pass (local transformers, 非 vLLM)
-        │   启用 output_hidden_states=True
+        ├── 构造 GT 前缀文本:
+        │   gt_prefix = '<tool_call>\n{"name":"mobile_use","arguments":{"action":"click"'
+        │   ↑ 到 action_type 关键字为止，不包含坐标
         │
-        ├── 定位 action_type token 的位置 (在 output sequence 中)
-        │   方法: 在 generated token sequence 中搜索
-        │         "click" 或 "long_press" 对应的 token ID
+        ├── 拼接输入:
+        │   input_ids = tokenize([system_prompt + image + user_prompt + gt_prefix])
+        │   ↑ GT 前缀被当作"已生成"的内容直接作为 prefill 输入
         │
-        ├── 提取该位置的 last_hidden_state
-        │   h_t = model_output.hidden_states[-1][:, action_type_pos, :]
+        ├── 单次 forward pass (非 generate):
+        │   outputs = model.forward(input_ids)
+        │   h_t = outputs.last_hidden_state[0, -1, :]  # 最后位置
         │   h_t ∈ R^4096
+        │   ↑ 无需 output_hidden_states=True
+        │     无需 model.generate()
+        │     无需保存中间层 hidden states
         │
         └── 记录 ground truth 坐标
             gt_coord = [x/999, y/999]  (归一化到 [0,1])
@@ -143,16 +153,26 @@ AndroidControl train split
     }
 ```
 
+**GT-Forcing Prefill vs 自回归 generate 对比**:
+
+| 指标 | 自回归 generate (旧) | GT-Forcing Prefill (新) |
+|------|---------------------|------------------------|
+| 计算 | ~200 次 decode step | 1 次 forward pass |
+| 内存 | KV cache + 全步 hidden states | 单次 forward，无额外存储 |
+| 时间/样本 | ~5-10s | ~0.5-1s |
+| 可 batch | 否 | **是** |
+| 数学等价 | 基准 | 等价 (causal mask) |
+| 需 GT 文本 | 否 (模型自生成) | 是 (构造到 action_type 为止) |
+
 **关键实现细节**:
 
-1. **Action type token 定位**: Qwen3-VL 的 tokenizer 将 `"click"` 编码为特定 token ID。需要:
-   - 先 tokenize `"click"` → 获取 target token IDs
-   - 在 model output 的 token 序列中搜索匹配位置
-   - 取 **最后一次出现** (因为 thinking 中可能也提到 "click")
+1. **GT 前缀构造**: 使用 AndroidControl 的 GT action_type 构造 JSON 前缀到 `"click"` 关键字，不包含坐标值。
 
-2. **Hidden state 层选择**: 默认使用最后一层 (`hidden_states[-1]`)。消融实验可尝试倒数第 2-4 层或多层拼接。
+2. **Attention**: 使用 Flash Attention 2 (`attn_implementation="flash_attention_2"`)，ViT + LLM 均走 FA2。
 
-3. **内存管理**: Qwen3-VL-8B + `output_hidden_states=True` 在 H20-141G 上单图推理约需 ~30 GB VRAM。需单 GPU 运行，batch_size=1。
+3. **Hidden state 层选择**: 默认使用最后一层 (`last_hidden_state`)。消融实验可尝试倒数第 2-4 层。
+
+4. **多 GPU 并行**: 4 GPU 各加载一份模型，按 episode round-robin 分配，最后合并。
 
 **输出文件**: `extracted/train_hidden_states.pt` — 包含 N 个 (h_t, gt_coord) 对。
 
@@ -299,24 +319,28 @@ AndroidControl 上的完整动作空间及回归头的适用性:
 - [x] 实验入口脚本骨架 (`experiments/regression_head.py`)
 - [x] vLLM 后端 (`guiaccel/model/service_backend.py`)
 - [x] Local transformers 后端 (`guiaccel/model/qwen_backend.py`)
+- [x] **Phase 1: GT-Forcing Prefill Hidden state 提取** ← 已完成 2025-07-23
+  - GT prefix 构造 (action_type 关键字前缀, 18-19 tokens)
+  - 单次 `model.forward(output_hidden_states=True)` 替代 `model.generate()`
+  - `mm_token_type_ids` 扩展 (M-RoPE 兼容)
+  - 4-GPU 多进程并行提取 (`torch.multiprocessing`)
+  - Smoke test 通过: 530ms/sample, hidden_dim=4096, 无 OOM
+- [x] `CoordRegressionHead` 模型定义 (`guiaccel/model/coord_head.py`)
 
-### 待实现
+### 已完成（相对旧“进行中/待实现”条目；以 outputs 为准）
 
-- [ ] **Phase 1: Hidden state 提取**
-  - Hook Qwen3-VL forward pass → 获取 `hidden_states`
-  - Action type token 定位逻辑
-  - (hidden_state, gt_coord) pair 保存/加载
-- [ ] **Phase 2: MLP 训练**
-  - `CoordRegressionHead` 模型定义
-  - 训练循环 (AdamW, Smooth L1, early stopping)
-  - 消融实验框架 (hidden_dim, 层选择, 损失函数)
-- [ ] **Phase 3: 集成评估**
-  - 在 Qwen3-VL decode 管线中插入回归头
-  - 端到端延迟对比
-  - AndroidControl 标准评估 + 坐标误差分析
-- [ ] **可选: 与 Action-Type 早退组合**
-  - 在 prefill 阶段预测 action_type
-  - CLICK/LONG_PRESS → 回归头, 其他 → 对应策略
+- [x] **Phase 1 全量提取** — job **31572** COMPLETED; `outputs/regression_head/20260723_050425/` N=46581×4096（merged `metadata=[]` bug known）
+- [x] **Phase 2 MLP 训练** — `train_20260723_121025`, best val MAE@999 ≈ **42.61** @ epoch 46
+- [x] Decode-eval 管线 + smoke（58）; full-test job **31620** CANCELLED（勿 resume；~800 partial 仅诊断）
+- [ ] **Thinking-aware campaign E1–E4** — plan: `docs/plan_e1_e4_thinking_aware.md`（T0 reviewed; next = T1 E1-A extract API）
+- [ ] Fair full-test decode eval（新 job，非 31620）
+
+### 待实现 / 后续
+
+- [ ] E1–E4 thinking-aware re-extract → retrain → fair \(\rho\) eval（见 plan）
+- [ ] **E5 SparkUI-style visual⊕\(h_t\) mix** — **post-gate fallback only**（E1–E4 失败门之后；禁止提前实现）
+- [ ] 可选: 与 Action-Type 早退组合
+- [ ] 可选: vLLM 集成（非本 campaign）
 
 ---
 
@@ -335,12 +359,18 @@ AndroidControl 上的完整动作空间及回归头的适用性:
 | `guiaccel/types.py` | 核心数据类: CanonicalAction, BBox, etc. |
 | `guiaccel/routing/common.py` | TokenUsage, StepContext, estimate_visual_tokens |
 
-### 待创建文件 (Phase 1 实现时)
+### 已创建文件
 
 | 路径 | 描述 |
 |------|------|
-| `guiaccel/model/coord_head.py` | CoordRegressionHead 模型定义 |
-| `guiaccel/model/hidden_state_extractor.py` | Hidden state 提取 + action_type 定位 |
+| `guiaccel/model/coord_head.py` | CoordRegressionHead MLP 模型定义 |
+| `guiaccel/model/hidden_state_extractor.py` | GT-Forcing Prefill hidden state 提取 |
+| `run_scripts/regression_head/extract_4gpu.sh` | 4-GPU SLURM 提取脚本 |
+
+### 待创建文件
+
+| 路径 | 描述 |
+|------|------|
 | `guiaccel/model/coord_decode.py` | 集成: 标准 decode → 回归头替代坐标 |
 
 ---
@@ -398,3 +428,46 @@ python experiments/regression_head.py --mode eval \
     --output-dir outputs/regression_head/eval \
     --split test
 ```
+
+---
+
+## 工程规范 (Engineering Standards)
+
+### 推理加速复现规范
+
+- 复现推理加速，涉及推理框架、token 压缩等算法时，重点关注这三个指标：
+  1. **时间复杂度**
+  2. **新算法和原有算法的 latency 比值**
+  3. **token 输入输出的量**
+
+- 除非实在无法避免，**禁止**在适配 backbone 的时候，采用额外造成耗时上升的方法，也就是**禁止额外增加**这三个指标的数值。
+
+- 一定要在完全贴近论文实现方法的基础上，针对新的 backbone 适配，详细分析每个算法步骤的原理，在新情景下带来的：
+  - **时间复杂度**
+  - **新算法和原有算法的 latency 比值**
+  - **token 输入输出的量**
+
+- 引入严谨数学计算证明
+- 画出过程中的时序图、模块图，说明插入算法影响到的架构区域，最后整理成报告返回
+
+### 代码质量
+
+- 在不降低数据质量的情况下进行代码处理，**禁止引入降级、简化的实现方法，或者绕过部分实施方法**
+- **禁止引入过度防御性代码**，有问题的输入应该报错，而不是通过兜底措施假装能正常运行
+- 对于某个方向的多个新增文件和测试，**新建文件夹然后写入**，防止工作区杂乱
+
+### Heart Monitor
+
+- 针对长任务的 subagent，**2min 一次进行任务查询和 log 查看**，确保任务正常进行，程序正常输出
+
+### 模型训练 / 推理 / Eval 操作
+
+- 首先考虑**脚本内实现多核并行**
+- 所有 `.sh` 脚本默认 `--time 7-00:00:00`，目的：保证测试和正式任务不因为时长限制导致问题
+- 非 smoke 任务的脚本，提交 A40 **4 卡**
+- 针对长任务的脚本提交后，启动一个 Heart Monitor，**2min 一次进行任务查询和 log 查看**，确保任务正常进行，程序正常输出
+- 提交脚本前要保证 **dry run 能跑通，参数无误**，然后进行 smoke
+- 针对数据处理、读取方面的脚本，请慎重思考多核并行，保存 checkpoint 时候对应的内存大小，合理分配参数，一定要使用 `common*` CPU 节点提交任务，严禁使用 GPU 节点
+- 训练、评测、推理时确保支持 **resume 参数**，保存 checkpoint 能够续训，编写拉起续训的脚本，默认拉起次数上限为 40000
+- 提交任务，产物输出放在新文件夹，相同类型的任务，禁止覆盖
+- 转移文件使用 `mv`，禁止使用复制后删除
