@@ -478,11 +478,22 @@ python experiments/regression_head.py --mode eval \
 
 ---
 
-## E2: 3-Point CPU Training (thinking_end / action / coord_bracket)
+## E2: 3-Point CPU Training (thinking_end / action / coord_bracket) — COMPLETED
 
 | Item | Detail |
 |------|--------|
 | Extract | `outputs/regression_head/20260724_021359` (multi_point=True, N=46581) |
 | Job ID | **31657** |
 | Script | `run_scripts/regression_head/train_e2_3points_cpu.sh` |
-| Status | RUNNING (as of 2026-07-24 19:16 UTC+8) |
+| Status | **COMPLETED** (2026-07-24 19:21 UTC+8, Elapsed=00:05:10) |
+| Batch dir | `outputs/regression_head/e2_train3_20260724_071646/` |
+
+### Results per extract point
+
+| Extract Point | Best Epoch | val_MAE@999 | Output Dir |
+|--------------|-----------|-------------|-----------|
+| **thinking_end** | 49 | **67.19** | `train_e2_thinking_end_20260724_071712/` |
+| **action** | 32 | **41.86** | `train_e2_action_20260724_071900/` |
+| **coord_bracket** | 45 | **37.16** | `train_e2_coord_bracket_20260724_072020/` |
+
+**Winner by MAE: coord_bracket** (37.16 vs action 41.86 vs thinking_end 67.19)
