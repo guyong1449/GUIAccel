@@ -334,13 +334,13 @@ AndroidControl 上的完整动作空间及回归头的适用性:
 - [x] Decode-eval 管线 + smoke（58）; full-test job **31620** CANCELLED（勿 resume；~800 partial 仅诊断）
 - [x] **T1 / E1-A extract API** — `build_gt_prefix` + `--thinking-mode template` (default) + `--extract-point action`; multi-GPU merge `meta`→`metadata` fixed; smoke job **31623** → `outputs/regression_head/e1a_smoke_20260723_201137/`
 - [x] **T2 E1-A full re-extract** — job **31624** COMPLETED; `outputs/regression_head/20260723_201700/` N=46581×4096, `thinking_mode=template`, `extract_point=action`, metadata_len=N
-- [ ] **Thinking-aware campaign E1–E4** — plan: `docs/plan_e1_e4_thinking_aware.md`；T3 retrain done (see above); fair decode eval not started
-- [x] **T3 E1-A CoordRegressionHead retrain** — job **31626** COMPLETED (00:01:06); `outputs/regression_head/train_20260723_223842/`; EXTRACT_SRC=`20260723_201700/extracted`; best val MAE@999 ≈ **44.31** @ epoch 44 (vs Phase-2 baseline ≈42.61 → **worse**); ckpt `trained/coord_head_best.pth`; decode eval not started (parent review→eval)
-- [ ] Fair full-test decode eval（新 job，非 31620）
+- [ ] **Thinking-aware campaign E1–E4** — plan: `docs/plan_e1_e4_thinking_aware.md`；T3 retrain verified; T4 decode eval **31627** submitted
+- [x] **T3 E1-A CoordRegressionHead retrain** — job **31626** COMPLETED ExitCode=0:0 Elapsed=00:01:06; `outputs/regression_head/train_20260723_223842/`; EXTRACT_SRC=`20260723_201700/extracted` (`thinking_mode=template`); lr=3e-4, grad_clip=1.0, LayerNorm ckpt; best val MAE@999 ≈ **44.31** @ epoch 44 (vs Phase-2 baseline ≈42.61 → **worse**; offline MAE alone does not block online hit-rate eval); ckpt `trained/coord_head_best.pth`
+- [x] Fair full-test decode eval submitted — job **31627** (`TRAIN_RUN=train_20260723_223842`, `EVAL_SPLIT=test`, 4×GPU, skillreuse-fa2); not a resume of cancelled **31620**
 
 ### 待实现 / 后续
 
-- [ ] T4: fair \(\rho\) decode eval on T3 ckpt (`train_20260723_223842/trained/coord_head_best.pth`; val MAE@999≈44.31 worse than baseline 42.61) — not submitted yet
+- [ ] T4: fair \(\rho\) decode eval on T3 ckpt — **submitted** job **31627** (test split; await completion)
 - [ ] E2–E4 + optional E3 parallel after T1 API
 - [ ] **E5 SparkUI-style visual⊕\(h_t\) mix** — **post-gate fallback only**（E1–E4 失败门之后；禁止提前实现）
 - [ ] 可选: 与 Action-Type 早退组合
