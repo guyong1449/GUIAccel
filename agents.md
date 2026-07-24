@@ -333,12 +333,13 @@ AndroidControl 上的完整动作空间及回归头的适用性:
 - [x] **Phase 2 MLP 训练** — `train_20260723_121025`, best val MAE@999 ≈ **42.61** @ epoch 46
 - [x] Decode-eval 管线 + smoke（58）; full-test job **31620** CANCELLED（勿 resume；~800 partial 仅诊断）
 - [x] **T1 / E1-A extract API** — `build_gt_prefix` + `--thinking-mode template` (default) + `--extract-point action`; multi-GPU merge `meta`→`metadata` fixed; smoke job **31623** → `outputs/regression_head/e1a_smoke_20260723_201137/`
-- [ ] **Thinking-aware campaign E1–E4** — plan: `docs/plan_e1_e4_thinking_aware.md`；**T2 submitted** job **31624** (`extract_4gpu.sh`, train split, `thinking_mode=template`, `extract_point=action`; unset episode limit; T3 train not started)
+- [x] **T2 E1-A full re-extract** — job **31624** COMPLETED; `outputs/regression_head/20260723_201700/` N=46581×4096, `thinking_mode=template`, `extract_point=action`, metadata_len=N
+- [ ] **Thinking-aware campaign E1–E4** — plan: `docs/plan_e1_e4_thinking_aware.md`；**T3 train submitted** job **31626** (`train_1gpu.sh`, `EXTRACT_SRC=.../20260723_201700/extracted`, lr=3e-4, grad_clip=1.0); decode eval not started
 - [ ] Fair full-test decode eval（新 job，非 31620）
 
 ### 待实现 / 后续
 
-- [ ] T2–T4: E1-A full re-extract (**T2 job 31624 RUNNING**) → retrain → fair \(\rho\) eval（见 plan）
+- [ ] T3–T4: E1-A retrain (**T3 job 31626 RUNNING**) → fair \(\rho\) eval（见 plan）
 - [ ] E2–E4 + optional E3 parallel after T1 API
 - [ ] **E5 SparkUI-style visual⊕\(h_t\) mix** — **post-gate fallback only**（E1–E4 失败门之后；禁止提前实现）
 - [ ] 可选: 与 Action-Type 早退组合
