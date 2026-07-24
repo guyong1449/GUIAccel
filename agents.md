@@ -332,12 +332,14 @@ AndroidControl 上的完整动作空间及回归头的适用性:
 - [x] **Phase 1 全量提取** — job **31572** COMPLETED; `outputs/regression_head/20260723_050425/` N=46581×4096（merged `metadata=[]` bug known）
 - [x] **Phase 2 MLP 训练** — `train_20260723_121025`, best val MAE@999 ≈ **42.61** @ epoch 46
 - [x] Decode-eval 管线 + smoke（58）; full-test job **31620** CANCELLED（勿 resume；~800 partial 仅诊断）
-- [ ] **Thinking-aware campaign E1–E4** — plan: `docs/plan_e1_e4_thinking_aware.md`（T0 reviewed; next = T1 E1-A extract API）
+- [x] **T1 / E1-A extract API** — `build_gt_prefix` + `--thinking-mode template` (default) + `--extract-point action`; multi-GPU merge `meta`→`metadata` fixed; smoke via `run_scripts/regression_head/extract_smoke_1gpu.sh`
+- [ ] **Thinking-aware campaign E1–E4** — plan: `docs/plan_e1_e4_thinking_aware.md`（next = T2 full E1-A re-extract）
 - [ ] Fair full-test decode eval（新 job，非 31620）
 
 ### 待实现 / 后续
 
-- [ ] E1–E4 thinking-aware re-extract → retrain → fair \(\rho\) eval（见 plan）
+- [ ] T2–T4: E1-A full re-extract → retrain → fair \(\rho\) eval（见 plan）
+- [ ] E2–E4 + optional E3 parallel after T1 API
 - [ ] **E5 SparkUI-style visual⊕\(h_t\) mix** — **post-gate fallback only**（E1–E4 失败门之后；禁止提前实现）
 - [ ] 可选: 与 Action-Type 早退组合
 - [ ] 可选: vLLM 集成（非本 campaign）
