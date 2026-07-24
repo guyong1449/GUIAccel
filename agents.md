@@ -334,13 +334,13 @@ AndroidControl 上的完整动作空间及回归头的适用性:
 - [x] Decode-eval 管线 + smoke（58）; full-test job **31620** CANCELLED（勿 resume；~800 partial 仅诊断）
 - [x] **T1 / E1-A extract API** — `build_gt_prefix` + `--thinking-mode template` (default) + `--extract-point action`; multi-GPU merge `meta`→`metadata` fixed; smoke job **31623** → `outputs/regression_head/e1a_smoke_20260723_201137/`
 - [x] **T2 E1-A full re-extract** — job **31624** COMPLETED; `outputs/regression_head/20260723_201700/` N=46581×4096, `thinking_mode=template`, `extract_point=action`, metadata_len=N
-- [ ] **Thinking-aware campaign E1–E4** — plan: `docs/plan_e1_e4_thinking_aware.md`；T3 retrain verified; T4 decode eval **31627** submitted
+- [ ] **Thinking-aware campaign E1–E4** — plan: `docs/plan_e1_e4_thinking_aware.md`；T3 retrain verified; T4 full-test decode eval **31627** COMPLETED (metrics below; Reg hit still ~smoke — E2 next)
 - [x] **T3 E1-A CoordRegressionHead retrain** — job **31626** COMPLETED ExitCode=0:0 Elapsed=00:01:06; `outputs/regression_head/train_20260723_223842/`; EXTRACT_SRC=`20260723_201700/extracted` (`thinking_mode=template`); lr=3e-4, grad_clip=1.0, LayerNorm ckpt; best val MAE@999 ≈ **44.31** @ epoch 44 (vs Phase-2 baseline ≈42.61 → **worse**; offline MAE alone does not block online hit-rate eval); ckpt `trained/coord_head_best.pth`
-- [x] Fair full-test decode eval submitted — job **31627** (`TRAIN_RUN=train_20260723_223842`, `EVAL_SPLIT=test`, 4×GPU, skillreuse-fa2); not a resume of cancelled **31620**
+- [x] **T4 full-test decode eval** — job **31627** COMPLETED ExitCode=0:0 Elapsed=03:08:01; `outputs/regression_head/decode_eval_20260723_224226/`; split=test, N=5083, 4×GPU; AR bbox hit=**0.911**, Reg=**0.520** (vs prior smoke/partial Reg~0.53–0.55 / AR~0.90 → similar–slightly worse); MAE@999 mean AR=**34.77** (med 3.0) Reg=**45.28** (med 25.0); unfair ρ(reg/ar)=**0.081** (ar_ms≈7368, reg_ms≈564; reg mostly extract); fair ρ=**n/a** (this run is unfair no-thinking extract path); tokens_saved_estimate_mean≈**80.7** (ar_gen≈135, reg_prefix≈54); TRAIN_RUN=`train_20260723_223842`; not a resume of cancelled **31620**
 
 ### 待实现 / 后续
 
-- [ ] T4: fair \(\rho\) decode eval on T3 ckpt — **submitted** job **31627** (test split; await completion)
+- [x] T4: full-test decode eval on T3 ckpt — job **31627** COMPLETED; Reg hit 0.520 vs AR 0.911; unfair ρ≈0.081; fair ρ n/a — **does not pass** thinking-aware accuracy gate (≥0.80); proceed E2 (do not start E2/E3/E4 code in monitor agent)
 - [ ] E2–E4 + optional E3 parallel after T1 API
 - [ ] **E5 SparkUI-style visual⊕\(h_t\) mix** — **post-gate fallback only**（E1–E4 失败门之后；禁止提前实现）
 - [ ] 可选: 与 Action-Type 早退组合
