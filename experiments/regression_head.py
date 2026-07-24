@@ -101,12 +101,19 @@ def _extract_worker(
                 continue
 
             samples.append(sample)
+            multi_note = ""
+            if sample.extract_point == "multi":
+                multi_note = (
+                    f" lens=te{sample.prefix_token_len_thinking_end}/"
+                    f"act{sample.prefix_token_len_action}/"
+                    f"cb{sample.prefix_token_len_coord_bracket}"
+                )
             print(
                 f"  [GPU {rank}][{len(samples):4d}] ep={sample.episode_id} "
                 f"step={sample.step_index} type={sample.action_type} "
                 f"gt=({sample.gt_coord_999[0]},{sample.gt_coord_999[1]}) "
                 f"gen_tokens={sample.generated_tokens} "
-                f"h_dim={sample.hidden_state.shape[0]} {elapsed_ms:.0f}ms"
+                f"h_dim={sample.hidden_state.shape[0]}{multi_note} {elapsed_ms:.0f}ms"
             )
 
             if len(samples) % 200 == 0:
@@ -201,8 +208,12 @@ def run_extract(args: argparse.Namespace) -> None:
         print("Merging worker outputs ...")
         hs_chunks: list = []
         gt_chunks: list = []
+        h_te_chunks: list = []
+        h_act_chunks: list = []
+        h_cb_chunks: list = []
         merged_meta: list = []
         total_samples = 0
+        multi_point = extract_point == "multi"
         for rank in range(num_gpus):
             worker_dir = output_dir / f"worker_{rank}"
             worker_file = worker_dir / f"{args.split}_hidden_states.pt"
@@ -213,9 +224,19 @@ def run_extract(args: argparse.Namespace) -> None:
                 chunk_meta = worker_meta_list(data)
                 merged_meta.extend(chunk_meta)
                 total_samples += data["hidden_states"].shape[0]
+                if multi_point:
+                    for key, bucket in (
+                        ("h_thinking_end", h_te_chunks),
+                        ("h_action", h_act_chunks),
+                        ("h_coord_bracket", h_cb_chunks),
+                    ):
+                        if key not in data:
+                            print(f"ERROR: worker {rank} missing {key}")
+                            sys.exit(1)
+                        bucket.append(data[key])
                 print(
                     f"  GPU {rank}: {data['hidden_states'].shape[0]} samples "
-                    f"(meta={len(chunk_meta)})"
+                    f"(meta={len(chunk_meta)}, multi={bool(data.get('multi_point'))})"
                 )
 
         if total_samples > 0:
@@ -230,11 +251,16 @@ def run_extract(args: argparse.Namespace) -> None:
                 "metadata": merged_meta,
                 "meta": merged_meta,
             }
+            if multi_point:
+                merged_data["h_thinking_end"] = torch.cat(h_te_chunks, dim=0)
+                merged_data["h_action"] = torch.cat(h_act_chunks, dim=0)
+                merged_data["h_coord_bracket"] = torch.cat(h_cb_chunks, dim=0)
+                merged_data["multi_point"] = True
             final_path = output_dir / f"{args.split}_hidden_states.pt"
             torch.save(merged_data, str(final_path))
             print(
                 f"Merged {total_samples} samples → {final_path} "
-                f"(len(metadata)={len(merged_meta)})"
+                f"(len(metadata)={len(merged_meta)}, multi_point={multi_point})"
             )
 
         summary = {
@@ -247,6 +273,7 @@ def run_extract(args: argparse.Namespace) -> None:
             "extraction_layer": args.extraction_layer,
             "thinking_mode": thinking_mode,
             "extract_point": extract_point,
+            "multi_point": multi_point,
         }
         (output_dir / "extraction_summary.json").write_text(json.dumps(summary, indent=2))
         print(f"\n=== Multi-GPU extraction complete ===")
@@ -293,12 +320,19 @@ def run_extract(args: argparse.Namespace) -> None:
                 continue
 
             samples.append(sample)
+            multi_note = ""
+            if sample.extract_point == "multi":
+                multi_note = (
+                    f" lens=te{sample.prefix_token_len_thinking_end}/"
+                    f"act{sample.prefix_token_len_action}/"
+                    f"cb{sample.prefix_token_len_coord_bracket}"
+                )
             print(
                 f"  [{len(samples):4d}] ep={sample.episode_id} step={sample.step_index} "
                 f"type={sample.action_type} "
                 f"gt=({sample.gt_coord_999[0]},{sample.gt_coord_999[1]}) "
                 f"gen_tokens={sample.generated_tokens} "
-                f"h_dim={sample.hidden_state.shape[0]} "
+                f"h_dim={sample.hidden_state.shape[0]}{multi_note} "
                 f"{elapsed_ms:.0f}ms"
             )
 
@@ -324,6 +358,7 @@ def run_extract(args: argparse.Namespace) -> None:
         "model_path": model_path,
         "thinking_mode": thinking_mode,
         "extract_point": extract_point,
+        "multi_point": extract_point == "multi",
         "metadata_len": len(samples),
     }
     summary_path = output_dir / "extraction_summary.json"
@@ -345,7 +380,10 @@ def run_train(args: argparse.Namespace) -> None:
         compute_loss,
         save_coord_head,
     )
-    from guiaccel.model.hidden_state_extractor import load_extracted_samples
+    from guiaccel.model.hidden_state_extractor import (
+        load_extracted_samples,
+        select_hidden_states_for_point,
+    )
 
     output_dir = Path(args.output_dir) / "trained"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -362,8 +400,16 @@ def run_train(args: argparse.Namespace) -> None:
         data_path = candidates[-1]
         print(f"Using extracted data: {data_path}")
 
+    train_point = getattr(args, "extract_point", "action")
+    if train_point == "multi":
+        print(
+            "ERROR: --extract-point multi is extract-only; "
+            "pick thinking_end|action|coord_bracket for train"
+        )
+        sys.exit(1)
+
     data = load_extracted_samples(data_path)
-    hidden_states = data["hidden_states"].float()   # (N, hidden_dim)
+    hidden_states = select_hidden_states_for_point(data, train_point).float()
     gt_coords = data["gt_coords_norm"].float()      # (N, 2)
     # Drop AndroidControl annotation outliers with coords outside the screenshot.
     in_bounds = (gt_coords >= 0).all(dim=1) & (gt_coords <= 1).all(dim=1)
@@ -374,7 +420,8 @@ def run_train(args: argparse.Namespace) -> None:
         gt_coords = gt_coords[in_bounds]
     N = hidden_states.shape[0]
     input_dim = hidden_states.shape[1]
-    print(f"Loaded {N} samples, input_dim={input_dim}")
+    print(f"Loaded {N} samples, input_dim={input_dim}, extract_point={train_point}")
+    print(f"  multi_point_artifact={bool(data.get('multi_point'))}")
     print(f"  h mean={hidden_states.mean():.4f} std={hidden_states.std():.4f} "
           f"absmax={hidden_states.abs().max():.2f}")
     print(f"  gt mean={gt_coords.mean(0).tolist()} std={gt_coords.std(0).tolist()}")
@@ -485,7 +532,11 @@ def run_train(args: argparse.Namespace) -> None:
             save_coord_head(
                 model, config,
                 output_dir / "coord_head_best.pth",
-                extra_meta={"best_epoch": best_epoch, "best_val_loss": best_val_loss},
+                extra_meta={
+                    "best_epoch": best_epoch,
+                    "best_val_loss": best_val_loss,
+                    "extract_point": train_point,
+                },
             )
         else:
             patience_counter += 1
@@ -519,6 +570,8 @@ def run_train(args: argparse.Namespace) -> None:
         "best_epoch": best_epoch,
         "best_val_loss": best_val_loss,
         "final_epoch": epoch,
+        "extract_point": train_point,
+        "thinking_mode": getattr(args, "thinking_mode", "template"),
         "config": {
             "input_dim": config.input_dim,
             "hidden_dim": config.hidden_dim,
@@ -841,8 +894,12 @@ def main() -> None:
     parser.add_argument(
         "--extract-point",
         default="action",
-        choices=("thinking_end", "action", "coord_bracket"),
-        help="Hidden-state position within the forced prefix (default: action)",
+        choices=("thinking_end", "action", "coord_bracket", "multi"),
+        help=(
+            "Hidden-state position within the forced prefix (default: action). "
+            "Use 'multi' for E2 one-forward extract of all three points "
+            "(train/eval must then pick a single point)."
+        ),
     )
 
     # Train

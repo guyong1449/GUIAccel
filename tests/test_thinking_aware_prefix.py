@@ -67,7 +67,10 @@ class TestThinkingAwarePrefix(unittest.TestCase):
             extract_point="thinking_end",
         )
         self.assertIn("<thinking>", prefix)
-        self.assertTrue(prefix.rstrip().endswith("</thinking>"))
+        self.assertIn("</thinking>", prefix)
+        self.assertTrue(
+            prefix.rstrip().endswith("</thinking>") or prefix.endswith("</thinking>\n"),
+        )
         self.assertNotIn("<tool_call>", prefix)
 
     def test_coord_bracket_extends_past_action(self) -> None:
@@ -139,6 +142,53 @@ class TestThinkingAwarePrefix(unittest.TestCase):
 
         empty = {}
         self.assertEqual(worker_meta_list(empty), [])
+
+
+    def test_multi_rejected_by_build_gt_prefix(self) -> None:
+        with self.assertRaises(ValueError):
+            build_gt_prefix(
+                _fake_step(),
+                action_type="click",
+                thinking_mode="template",
+                extract_point="multi",
+            )
+
+    def test_multi_point_prefix_token_lengths_nested(self) -> None:
+        from guiaccel.model.hidden_state_extractor import _multi_point_prefix_token_lengths
+
+        class _Tok:
+            """Minimal tokenizer stub with offset_mapping (prefix-unstable encode)."""
+
+            def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
+                del add_special_tokens
+                # Deliberately non-prefix-stable: append a sentinel that depends on
+                # whether the string ends with newline (mirrors Qwen BPE behaviour).
+                ids = list(text.encode("utf-8"))
+                if text.endswith("\n"):
+                    ids.append(999)
+                return ids
+
+            def __call__(self, text: str, add_special_tokens: bool = False, return_offsets_mapping: bool = False):
+                del add_special_tokens
+                # Char-level tokens with true offsets (stable indexing path).
+                ids = list(range(len(text)))
+                offs = [(i, i + 1) for i in range(len(text))]
+                out = {"input_ids": ids}
+                if return_offsets_mapping:
+                    out["offset_mapping"] = offs
+                return out
+
+        full, lengths = _multi_point_prefix_token_lengths(
+            _Tok(),
+            _fake_step("Open WiFi"),
+            action_type="click",
+            thinking_mode="template",
+        )
+        self.assertIn('"coordinate": [', full)
+        self.assertLessEqual(lengths["thinking_end"], lengths["action"])
+        self.assertLessEqual(lengths["action"], lengths["coord_bracket"])
+        self.assertGreater(lengths["thinking_end"], 0)
+        self.assertEqual(lengths["coord_bracket"], len(full))
 
 
 if __name__ == "__main__":

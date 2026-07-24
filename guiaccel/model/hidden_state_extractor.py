@@ -48,7 +48,9 @@ SCALE_FACTOR = 999
 
 # Thinking / extract-point API (E1-A default = template thinking @ action)
 THINKING_MODES = frozenset({"none", "template", "ar_cache"})
-EXTRACT_POINTS = frozenset({"thinking_end", "action", "coord_bracket"})
+# Single-point positions; ``multi`` = E2 one-forward capture of all three.
+EXTRACT_POINTS = frozenset({"thinking_end", "action", "coord_bracket", "multi"})
+SINGLE_EXTRACT_POINTS = ("thinking_end", "action", "coord_bracket")
 DEFAULT_THINKING_MODE = "template"
 DEFAULT_EXTRACT_POINT = "action"
 
@@ -123,8 +125,15 @@ def build_gt_prefix(
 
     if mode not in THINKING_MODES:
         raise ValueError(f"Unknown thinking_mode={thinking_mode!r}; expected one of {sorted(THINKING_MODES)}")
-    if point not in EXTRACT_POINTS:
-        raise ValueError(f"Unknown extract_point={extract_point!r}; expected one of {sorted(EXTRACT_POINTS)}")
+    if point == "multi":
+        raise ValueError(
+            "extract_point='multi' is only valid for extract_hidden_state "
+            "(one forward → three positions); build_gt_prefix needs a single point"
+        )
+    if point not in SINGLE_EXTRACT_POINTS:
+        raise ValueError(
+            f"Unknown extract_point={extract_point!r}; expected one of {sorted(SINGLE_EXTRACT_POINTS)}"
+        )
     if atype not in COORD_ACTION_TYPES:
         raise ValueError(f"Unsupported action_type={action_type!r} for GT prefix")
 
@@ -150,11 +159,15 @@ def build_gt_prefix(
         thinking_block = text
 
     if point == "thinking_end":
-        # Keep through closing tag; strip trailing whitespace beyond </thinking>
+        # Keep through closing tag + the conventional trailing newline after
+        # </thinking> when present (matches tokenization of the longer prefixes).
         end = thinking_block.rfind("</thinking>")
         if end < 0:
             raise ValueError("thinking block missing </thinking> for extract_point=thinking_end")
-        return thinking_block[: end + len("</thinking>")]
+        end_pos = end + len("</thinking>")
+        if end_pos < len(thinking_block) and thinking_block[end_pos] == "\n":
+            end_pos += 1
+        return thinking_block[:end_pos]
 
     tool = TOOL_CALL_UP_TO_ACTION[atype]
     if point == "action":
@@ -184,7 +197,7 @@ class ExtractedSample:
     episode_id: str
     step_index: int
     action_type: str
-    hidden_state: torch.Tensor          # [hidden_dim]，默认 4096
+    hidden_state: torch.Tensor          # [hidden_dim]，默认 4096 (primary / action)
     gt_coord_norm: torch.Tensor         # [2]，按截图像素归一化到约 [0,1]
     gt_coord_999: tuple[int, int]       # 同坐标的 0–999 整数表示（评测/日志用）
     screenshot_width: int
@@ -194,6 +207,107 @@ class ExtractedSample:
     thinking_mode: str = DEFAULT_THINKING_MODE
     extract_point: str = DEFAULT_EXTRACT_POINT
     prefix_token_len: int = 0           # alias of generated_tokens; explicit for meta
+    # E2 multi-point fields (set when extract_point == "multi")
+    h_thinking_end: torch.Tensor | None = None
+    h_action: torch.Tensor | None = None
+    h_coord_bracket: torch.Tensor | None = None
+    prefix_token_len_thinking_end: int = 0
+    prefix_token_len_action: int = 0
+    prefix_token_len_coord_bracket: int = 0
+
+
+def _encode_prefix_ids(tokenizer: Any, text: str) -> list[int]:
+    return list(tokenizer.encode(text, add_special_tokens=False))
+
+
+def _multi_point_prefix_token_lengths(
+    tokenizer: Any,
+    step: DatasetStep | Mapping[str, Any],
+    *,
+    action_type: str,
+    thinking_mode: str,
+    thinking_text: str | None = None,
+) -> tuple[str, dict[str, int]]:
+    """Build longest (coord_bracket) prefix + per-point token lengths for one forward.
+
+    Returns ``(full_prefix_text, {point: prefix_token_len})``.
+    Requires thinking_mode != 'none' so thinking_end is defined.
+
+    Token lengths are derived via ``return_offsets_mapping`` on the *full*
+    coord_bracket string (Qwen BPE is not prefix-stable across separate
+    ``encode()`` calls of nested substrings).
+    """
+    mode = (thinking_mode or DEFAULT_THINKING_MODE).strip().lower()
+    if mode == "none":
+        raise ValueError("extract_point='multi' requires thinking_mode != 'none'")
+
+    prefixes = {
+        point: build_gt_prefix(
+            step,
+            action_type=action_type,
+            thinking_mode=mode,
+            extract_point=point,
+            thinking_text=thinking_text,
+        )
+        for point in SINGLE_EXTRACT_POINTS
+    }
+    full = prefixes["coord_bracket"]
+    # String nesting: thinking_end ⊂ action ⊂ coord_bracket
+    if not prefixes["action"].startswith(prefixes["thinking_end"]):
+        raise ValueError(
+            "multi-point prefix nesting broken: action must start with thinking_end text"
+        )
+    if not full.startswith(prefixes["action"]):
+        raise ValueError(
+            "multi-point prefix nesting broken: coord_bracket must start with action text"
+        )
+
+    encoded = tokenizer(
+        full,
+        add_special_tokens=False,
+        return_offsets_mapping=True,
+    )
+    # HF tokenizer may return BatchEncoding with lists or nested lists.
+    input_ids = encoded["input_ids"]
+    offsets = encoded["offset_mapping"]
+    if input_ids and isinstance(input_ids[0], (list, tuple)):
+        input_ids = input_ids[0]
+        offsets = offsets[0]
+    if len(input_ids) != len(offsets) or len(input_ids) < 1:
+        raise ValueError(
+            f"offset_mapping length mismatch: ids={len(input_ids)} offs={len(offsets)}"
+        )
+
+    def _token_len_at_char_end(char_end: int) -> int:
+        """Number of tokens covering characters [0, char_end)."""
+        if char_end <= 0:
+            raise ValueError(f"char_end must be > 0, got {char_end}")
+        last_idx = -1
+        for i, (start, _end) in enumerate(offsets):
+            if start < char_end:
+                last_idx = i
+            else:
+                break
+        if last_idx < 0:
+            raise ValueError(f"no token covers char_end={char_end}")
+        return last_idx + 1
+
+    lengths = {
+        "thinking_end": _token_len_at_char_end(len(prefixes["thinking_end"])),
+        "action": _token_len_at_char_end(len(prefixes["action"])),
+        "coord_bracket": len(input_ids),
+    }
+    if lengths["coord_bracket"] != _token_len_at_char_end(len(full)):
+        # Full string should map to all tokens.
+        raise ValueError(
+            f"coord_bracket token length mismatch: "
+            f"{lengths['coord_bracket']} vs {_token_len_at_char_end(len(full))}"
+        )
+    if not (
+        1 <= lengths["thinking_end"] <= lengths["action"] <= lengths["coord_bracket"]
+    ):
+        raise ValueError(f"multi-point token lengths not nested: {lengths}")
+    return full, lengths
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +440,12 @@ def extract_hidden_state(
     2. 读 GT 像素坐标并归一化
     3. 构造 prompt tokens + thinking-aware GT 前缀 tokens
     4. **单次** ``model.forward(output_hidden_states=True)``
-    5. 取指定层、序列末位向量作为回归头输入
+    5. 取指定层、对应位置向量作为回归头输入
+
+    When ``extract_point='multi'`` (E2), the forward uses the longest
+    ``coord_bracket`` prefix and indexes ``h_thinking_end`` / ``h_action`` /
+    ``h_coord_bracket`` in that same pass (still 1 forward). Primary
+    ``hidden_state`` mirrors ``h_action`` for backward compatibility.
 
     Parameters
     ----------
@@ -337,7 +456,9 @@ def extract_hidden_state(
         旧版 autoregressive 提取器遗留参数，当前未使用，仅保持 API 兼容。
     thinking_mode / extract_point :
         See :func:`build_gt_prefix`. Default E1-A: template thinking @ action.
+        ``extract_point='multi'`` enables E2 multi-point capture.
     """
+    del max_new_tokens  # API compat only
     # ── 1. 校验动作类型：只处理 click / long_press ───────────────────────
     raw_action = step.raw_action
     action_type = str(raw_action.get("action_type", "")).lower()
@@ -387,18 +508,41 @@ def extract_hidden_state(
     )
     device = next(model.parameters()).device
     inputs = inputs.to(device)
+    prompt_len = int(inputs["input_ids"].shape[-1])
+
+    mode_norm = (thinking_mode or DEFAULT_THINKING_MODE).strip().lower()
+    point_norm = (extract_point or DEFAULT_EXTRACT_POINT).strip().lower()
+    if point_norm not in EXTRACT_POINTS:
+        raise ValueError(
+            f"Unknown extract_point={extract_point!r}; expected one of {sorted(EXTRACT_POINTS)}"
+        )
+
+    tokenizer = processor.tokenizer if hasattr(processor, "tokenizer") else processor
+    multi = point_norm == "multi"
+    point_lens: dict[str, int] | None = None
+    if multi:
+        gt_prefix, point_lens = _multi_point_prefix_token_lengths(
+            tokenizer,
+            step,
+            action_type=action_type,
+            thinking_mode=mode_norm,
+            thinking_text=thinking_text,
+        )
+        gt_prefix_len = point_lens["coord_bracket"]
+    else:
+        gt_prefix = build_gt_prefix(
+            step,
+            action_type=action_type,
+            thinking_mode=thinking_mode,
+            extract_point=point_norm,
+            thinking_text=thinking_text,
+        )
+        gt_prefix_len = len(_encode_prefix_ids(tokenizer, gt_prefix))
 
     # ── 5. Tokenize GT 前缀（thinking + tool skeleton；不含坐标值）────────
-    gt_prefix = build_gt_prefix(
-        step,
-        action_type=action_type,
-        thinking_mode=thinking_mode,
-        extract_point=extract_point,
-        thinking_text=thinking_text,
-    )
-    tokenizer = processor.tokenizer if hasattr(processor, "tokenizer") else processor
-    gt_prefix_id_list = tokenizer.encode(gt_prefix, add_special_tokens=False)
-    gt_prefix_len = len(gt_prefix_id_list)
+    gt_prefix_id_list = _encode_prefix_ids(tokenizer, gt_prefix)
+    if len(gt_prefix_id_list) != gt_prefix_len:
+        raise ValueError("gt_prefix token length inconsistency")
     gt_prefix_tensor = torch.tensor(
         [gt_prefix_id_list],
         dtype=inputs["input_ids"].dtype,
@@ -454,16 +598,46 @@ def extract_hidden_state(
     with torch.no_grad():
         outputs = model(**forward_kwargs)
 
-    # ── 8. 取指定层、batch=0、序列末位向量 ───────────────────────────────
+    # ── 8. 取指定层向量 ──────────────────────────────────────────────────
     # outputs.hidden_states: 长度 = num_layers+1 的 tuple
     #   [0] = embedding 输出
     #   [N] = 最终 LayerNorm 后（接 LM head）
     # 形状每个都是 (batch, seq_len, hidden_dim)
-    h = outputs.hidden_states[layer][0, -1, :].detach().cpu().float()
+    layer_h = outputs.hidden_states[layer][0]  # (seq_len, hidden_dim)
 
-    mode_norm = (thinking_mode or DEFAULT_THINKING_MODE).strip().lower()
-    point_norm = (extract_point or DEFAULT_EXTRACT_POINT).strip().lower()
+    if multi:
+        assert point_lens is not None
+        # Absolute indices = prompt_len + prefix_token_len - 1
+        idx_te = prompt_len + point_lens["thinking_end"] - 1
+        idx_act = prompt_len + point_lens["action"] - 1
+        idx_cb = prompt_len + point_lens["coord_bracket"] - 1
+        h_te = layer_h[idx_te, :].detach().cpu().float()
+        h_act = layer_h[idx_act, :].detach().cpu().float()
+        h_cb = layer_h[idx_cb, :].detach().cpu().float()
+        primary_len = point_lens["action"]
+        return ExtractedSample(
+            episode_id=step.episode_id,
+            step_index=step.step_index,
+            action_type=action_type,
+            hidden_state=h_act,  # default primary = action
+            gt_coord_norm=torch.tensor([gt_x_norm, gt_y_norm], dtype=torch.float32),
+            gt_coord_999=(gt_x_999, gt_y_999),
+            screenshot_width=sw,
+            screenshot_height=sh,
+            generated_tokens=primary_len,
+            extraction_layer=layer,
+            thinking_mode=mode_norm,
+            extract_point="multi",
+            prefix_token_len=primary_len,
+            h_thinking_end=h_te,
+            h_action=h_act,
+            h_coord_bracket=h_cb,
+            prefix_token_len_thinking_end=point_lens["thinking_end"],
+            prefix_token_len_action=point_lens["action"],
+            prefix_token_len_coord_bracket=point_lens["coord_bracket"],
+        )
 
+    h = layer_h[-1, :].detach().cpu().float()
     return ExtractedSample(
         episode_id=step.episode_id,
         step_index=step.step_index,
@@ -493,13 +667,24 @@ def save_extracted_samples(
 
     文件结构
     --------
-    - ``hidden_states`` : Tensor [N, hidden_dim]
+    - ``hidden_states`` : Tensor [N, hidden_dim] (primary; = h_action when multi)
     - ``gt_coords_norm`` : Tensor [N, 2]
     - ``meta`` / ``metadata`` : list[dict]，逐样本元信息（同一 list 的两个键）
+    - When multi-point: also ``h_thinking_end`` / ``h_action`` / ``h_coord_bracket``
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    meta = [
-        {
+    is_multi = bool(samples) and samples[0].extract_point == "multi"
+    if is_multi and any(s.extract_point != "multi" for s in samples):
+        raise ValueError("Cannot mix multi-point and single-point samples in one save")
+    if is_multi and any(
+        s.h_thinking_end is None or s.h_action is None or s.h_coord_bracket is None
+        for s in samples
+    ):
+        raise ValueError("multi-point samples missing h_* tensors")
+
+    meta = []
+    for s in samples:
+        row: dict[str, Any] = {
             "episode_id": s.episode_id,
             "step_index": s.step_index,
             "action_type": s.action_type,
@@ -512,18 +697,71 @@ def save_extracted_samples(
             "thinking_mode": s.thinking_mode,
             "extract_point": s.extract_point,
         }
-        for s in samples
-    ]
-    data = {
+        if s.extract_point == "multi":
+            row.update({
+                "multi_point": True,
+                "prefix_token_len_thinking_end": s.prefix_token_len_thinking_end,
+                "prefix_token_len_action": s.prefix_token_len_action,
+                "prefix_token_len_coord_bracket": s.prefix_token_len_coord_bracket,
+            })
+        meta.append(row)
+
+    data: dict[str, Any] = {
         "hidden_states": torch.stack([s.hidden_state for s in samples]),
         "gt_coords_norm": torch.stack([s.gt_coord_norm for s in samples]),
         # Dual keys: workers historically wrote ``meta``; merge expects ``metadata``.
         "meta": meta,
         "metadata": meta,
     }
+    if is_multi:
+        data["h_thinking_end"] = torch.stack([s.h_thinking_end for s in samples])  # type: ignore[misc]
+        data["h_action"] = torch.stack([s.h_action for s in samples])  # type: ignore[misc]
+        data["h_coord_bracket"] = torch.stack([s.h_coord_bracket for s in samples])  # type: ignore[misc]
+        data["multi_point"] = True
     torch.save(data, path)
-    print(f"Saved {len(samples)} samples to {path} "
-          f"({data['hidden_states'].shape})")
+    extra = ""
+    if is_multi:
+        extra = (
+            f" multi=[h_te{tuple(data['h_thinking_end'].shape)}"
+            f",h_act{tuple(data['h_action'].shape)}"
+            f",h_cb{tuple(data['h_coord_bracket'].shape)}]"
+        )
+    print(
+        f"Saved {len(samples)} samples to {path} "
+        f"({data['hidden_states'].shape}){extra}"
+    )
+
+
+def select_hidden_states_for_point(
+    data: Mapping[str, Any],
+    extract_point: str = DEFAULT_EXTRACT_POINT,
+) -> torch.Tensor:
+    """Pick the hidden-state tensor for a given extract point from a .pt dict.
+
+    Prefer explicit ``h_*`` multi-point fields; fall back to ``hidden_states``
+    for single-point extracts (must match ``extract_point`` or default action).
+    """
+    point = (extract_point or DEFAULT_EXTRACT_POINT).strip().lower()
+    if point == "multi":
+        raise ValueError("select_hidden_states_for_point requires a single point, not 'multi'")
+    if point not in SINGLE_EXTRACT_POINTS:
+        raise ValueError(f"Unknown extract_point={extract_point!r}")
+
+    key = f"h_{point}"
+    if key in data and data[key] is not None:
+        return data[key]
+    if data.get("multi_point") and key not in data:
+        raise KeyError(f"multi-point extract missing {key}")
+    # Single-point legacy artifact: hidden_states is the only vector.
+    meta = worker_meta_list(data)
+    if meta:
+        recorded = str(meta[0].get("extract_point") or DEFAULT_EXTRACT_POINT).lower()
+        if recorded not in (point, "multi"):
+            raise ValueError(
+                f"Artifact extract_point={recorded!r} does not match "
+                f"requested {point!r} and no {key} tensor is present"
+            )
+    return data["hidden_states"]
 
 
 def load_extracted_samples(path: Path) -> dict[str, Any]:
@@ -533,6 +771,8 @@ def load_extracted_samples(path: Path) -> dict[str, Any]:
     -------
     dict
         键为 ``hidden_states`` / ``gt_coords_norm`` / ``meta`` (and often ``metadata``).
+        Multi-point artifacts also expose ``h_thinking_end`` / ``h_action`` /
+        ``h_coord_bracket``.
         ``weights_only=False``：文件含非纯 tensor 的 meta list。
     """
     data = torch.load(path, map_location="cpu", weights_only=False)
@@ -540,4 +780,6 @@ def load_extracted_samples(path: Path) -> dict[str, Any]:
     meta = worker_meta_list(data)
     data["meta"] = meta
     data["metadata"] = meta
+    if any(k in data for k in ("h_thinking_end", "h_action", "h_coord_bracket")):
+        data["multi_point"] = True
     return data
