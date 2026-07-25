@@ -1,0 +1,23 @@
+# MSD (Speculative Decoding) additional dependencies for the skillreuse-fa2 conda environment.
+# Install after the base skillreuse-fa2 packages are in place.
+#
+#   conda activate skillreuse-fa2
+#   pip install -r requirements-msd.txt
+
+# ── Already present in skillreuse-fa2 (verified) ──────────────────
+# torch >= 2.7.0
+# transformers >= 5.12.1
+# accelerate >= 1.14.0
+# qwen-vl-utils >= 0.0.14
+# sentencepiece
+# flash-attn >= 2.8.3
+# huggingface_hub
+# safetensors
+# pillow
+# protobuf
+
+# ── MSD-specific (install editable, --no-deps to avoid downgrades) ─
+# Eagle draft model runtime (MSD forks /dkucc/home/rw335/MSD/EAGLE).
+# Installed via:
+#   pip install -e /dkucc/home/rw335/MSD/EAGLE --no-deps --no-build-isolation
+eagle-llm @ file:///dkucc/home/rw335/MSD/EAGLE
